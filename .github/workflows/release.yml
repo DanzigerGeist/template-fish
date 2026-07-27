@@ -17,9 +17,12 @@ jobs:
   # installs straight from the tag, so a bad tag is what users get until it is
   # superseded -- a direct push or squash-merge must never reach the tagging
   # job without passing the same checks a PR would.
+  # Deliberately NOT guarded by is_template. The guard's purpose is "never
+  # release", not "never test": the template repository must keep verifying its
+  # own gates on every push, or it rots silently and every repo created from it
+  # inherits the rot. Only the tagging and publishing jobs below are guarded.
   checks:
     name: Checks
-    if: ${{ !github.event.repository.is_template }}
     uses: ./.github/workflows/pr-checks.yml
     permissions:
       contents: read
