@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # github-actions is the only ecosystem a fish plugin has. Dependabot has no
+  # fisher or fish package ecosystem, and fishtape is vendored verbatim at
+  # tests/vendor/fishtape.fish rather than declared as a dependency, so bumping
+  # it is a deliberate, reviewable commit. Dependabot understands SHA pins and
+  # rewrites the trailing version comment when it updates one.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"

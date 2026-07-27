@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Quality gates run on the exact commit that is about to be tagged. fisher
+  # installs straight from the tag, so a bad tag is what users get until it is
+  # superseded -- a direct push or squash-merge must never reach the tagging
+  # job without passing the same checks a PR would.
+  checks:
+    name: Checks
+    if: ${{ !github.event.repository.is_template }}
+    uses: ./.github/workflows/pr-checks.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  release:
+    name: Release
+    # The template repository itself must never cut a release; forks of it must.
+    if: ${{ !github.event.repository.is_template }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: checks
+    # NOTE: the repository default for workflow permissions is `read` on a fresh
+    # repo. This block is load-bearing -- delete it and the `git push` below
+    # fails with a silent 403.
+    permissions:
+      contents: write
+    outputs:
+      should_release: ${{ steps.decide.outputs.should_release }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Dry-run version bump
+        id: dry-run
+        uses: cocogitto/cocogitto-action@390bda87a19bf627e03ad075c67a11e9ddbb7547 # v4.1.0
+        with:
+          command: bump
+          args: --auto --dry-run
+        continue-on-error: true
+      - name: Decide whether to release
+        id: decide
+        run: echo "should_release=${{ steps.dry-run.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+      - name: Bump version
+        if: steps.decide.outputs.should_release == 'true'
+        uses: cocogitto/cocogitto-action@390bda87a19bf627e03ad075c67a11e9ddbb7547 # v4.1.0
+        with:
+          command: bump
+          args: --auto
+      - name: Push release commit and tag
+        if: steps.decide.outputs.should_release == 'true'
+        run: git push && git push --tags
+      - name: Get version tag
+        if: steps.decide.outputs.should_release == 'true'
+        id: version
+        run: echo "version=$(git describe --tags)" >> "$GITHUB_OUTPUT"
+
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: release
+    if: needs.release.outputs.should_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.version }}
+          fetch-depth: 0
+      - name: Generate changelog
+        id: changelog
+        uses: cocogitto/cocogitto-action@390bda87a19bf627e03ad075c67a11e9ddbb7547 # v4.1.0
+        with:
+          command: changelog
+          args: --at ${{ needs.release.outputs.version }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.release.outputs.version }}
+          body: ${{ steps.changelog.outputs.stdout }}
+          generate_release_notes: false
+
+  # There is no registry. fisher resolves OWNER/REPO@vX.Y.Z to
+  # https://api.github.com/repos/OWNER/REPO/tarball/vX.Y.Z, so the tag IS the
+  # release. This job proves the freshly pushed tag is installable by a real
+  # fisher, which is the closest thing to publish verification a fish plugin
+  # has. Unlike `make smoke` this must hit the API, so it retries.
+  verify-tag:
+    name: Verify tag is installable
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: release
+    if: needs.release.outputs.should_release == 'true'
+    permissions:
+      contents: read
+    steps:
+      - name: Install fish
+        uses: fish-actions/install-fish@4bb37a71daebb76c6fb7d83771cff31b8a78c28e # v1.2.0
+      - name: Install the published tag with fisher
+        env:
+          PLUGIN_REF: ${{ github.repository }}@${{ needs.release.outputs.version }}
+        run: |
+          for attempt in 1 2 3; do
+            if fish -c '
+              curl -fsSL https://raw.githubusercontent.com/jorgebucaran/fisher/4.4.8/functions/fisher.fish | source
+              or begin; echo "could not fetch fisher" >&2; exit 1; end
+              fisher install $PLUGIN_REF
+              or begin; echo "fisher could not install $PLUGIN_REF" >&2; exit 1; end
+              echo "$PLUGIN_REF is installable"
+            ' </dev/null; then
+              exit 0
+            fi
+            echo "attempt $attempt failed; retrying in $((attempt * 15))s" >&2
+            sleep $((attempt * 15))
+          done
+          echo "verify-tag failed after 3 attempts" >&2
+          exit 1

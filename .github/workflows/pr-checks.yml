@@ -1,0 +1,130 @@
+name: PR Checks
+
+on:
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Third-party actions are pinned by full commit SHA, not by tag. Tags are
+# mutable, and fish-actions/install-fish in particular adds a third-party PPA
+# and installs from it in every Linux job. Dependabot updates SHA pins and
+# rewrites the trailing version comment.
+env:
+  GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+
+jobs:
+  # Skipped rather than run on workflow_dispatch: commitlint resolves its commit
+  # range from the event payload, and a dispatch payload carries no commits, so
+  # the job would lint nothing and still report success. A skipped check is
+  # honest; a vacuously green one is not.
+  commits:
+    name: Commits
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Conventional commits check
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install fish
+        uses: fish-actions/install-fish@4bb37a71daebb76c6fb7d83771cff31b8a78c28e # v1.2.0
+      - name: Check formatting
+        run: make fmt-check
+
+  syntax:
+    name: Syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install fish
+        uses: fish-actions/install-fish@4bb37a71daebb76c6fb7d83771cff31b8a78c28e # v1.2.0
+      - name: Parse every fish file
+        run: make syntax
+
+  # Both OSes by default. fish plugins routinely shell out to coreutils, and
+  # BSD and GNU disagree about option permutation and long-option support, so a
+  # Linux-only matrix structurally misses a whole class of bug. Drop macos-latest
+  # only if your plugin is pure fish with no external commands.
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install fish
+        uses: fish-actions/install-fish@4bb37a71daebb76c6fb7d83771cff31b8a78c28e # v1.2.0
+      - name: Run tests
+        run: make test
+
+  # fish has no coverage tooling, so this is the substitute: it proves the
+  # artifact works when obtained the way users obtain it. Installs from the
+  # local path, which makes zero api.github.com calls and so is immune to the
+  # unauthenticated rate limit shared runner IPs routinely exhaust.
+  smoke:
+    name: Install smoke test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install fish
+        uses: fish-actions/install-fish@4bb37a71daebb76c6fb7d83771cff31b8a78c28e # v1.2.0
+      - name: Install with fisher and load every function
+        run: make smoke
+
+  # The gitleaks binary, not gitleaks/gitleaks-action: the action has been
+  # proprietary-licensed since v2.0.0 and would be a second code path for a gate
+  # `make security` already implements. Running the same command locally and in
+  # CI also makes the GITLEAKS_LICENSE org-account caveat moot.
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f gitleaks gitleaks.tar.gz
+      - name: Scan for secrets
+        run: make security
