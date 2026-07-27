@@ -7,6 +7,21 @@
 # exercises the artifact the way users actually obtain it. fish has no coverage
 # tooling, so proving the shipped thing installs and loads is the substitute.
 #
+# WHAT THIS EXECUTES, AND WHAT IS CONTAINED.
+#
+# This script does not call your functions -- it only asserts each one is
+# defined. But `fisher install` itself sources every .fish file it copies
+# (fisher.fish:199-200): functions/ merely get defined, completions/ run their
+# `complete` calls, and any conf.d/ file has its top-level code executed and an
+# `<name>_install` event emitted. That is not something this gate adds; it is
+# byte-for-byte what happens on a real user's machine, and the code is your own.
+#
+# Contained: $HOME, $XDG_CONFIG_HOME, $XDG_DATA_HOME -- so universal variables,
+# fisher's state and anything written under $HOME land in a temp dir that is
+# deleted on exit. NOT contained: writes to absolute paths elsewhere on disk. If
+# you add a conf.d/ that touches the wider filesystem, prefer running this gate
+# in CI only, where the runner is ephemeral.
+#
 # THE ISOLATION FOOTGUN -- read before editing.
 #
 # fish resolves $__fish_config_dir ONCE, at startup. Exporting HOME or

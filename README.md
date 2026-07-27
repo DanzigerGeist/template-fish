@@ -38,25 +38,21 @@ and CI already wired up. Write the function; the release plumbing is done.
 gh repo create my-plugin.fish --template danzigergeist/template-fish --clone
 cd my-plugin.fish
 
-# 2. Rename the placeholder function -- do this FIRST
-make init NAME=myplugin
-
-# 3. Install git hooks
+# 2. Install git hooks
 make setup
 
-# 4. Verify everything works
-make check && make test && make smoke
+# 3. Verify everything works before you change anything
+make check && make test
 ```
 
-Then replace the body of `functions/myplugin.fish` with your own, update `tests/myplugin.test.fish`, and set the owner
-and repository name in `README.md`.
+Then write your plugin. `functions/example.fish`, `completions/example.fish` and `tests/example.test.fish` are
+**examples, not scaffolding** — delete them, or rename them to whatever you are building. Nothing in the tooling
+depends on those names: every gate discovers `*.fish` files rather than looking for specific ones, so adding
+`conf.d/`, `themes/` or a second function just works.
 
-### Why `make init` exists
-
-fish autoloads a function only when the file in `functions/` is **named after the function it defines**. A fish plugin
-therefore cannot simply be cloned and edited — the filename and the definition have to move together, in
-`functions/`, `completions/`, `tests/` and the docs. `make init` does all four. This is the one step the Deno and Go
-templates do not need.
+> **One fish rule to keep in mind:** fish autoloads a function only when the file in `functions/` is named after the
+> function it defines. `functions/greet.fish` must contain `function greet`. If you rename a file, rename the
+> definition with it — and the completion and test files alongside, by convention.
 
 ## Project Structure
 
@@ -68,7 +64,6 @@ templates do not need.
 │   ├── example.test.fish         # fishtape suite
 │   └── vendor/fishtape.fish      # test runner, committed verbatim
 ├── scripts/
-│   ├── init.fish                 # rename the placeholder
 │   ├── check-syntax.fish         # one fish -n per file (see the trap below)
 │   ├── run-tests.fish            # run every suite
 │   └── smoke-test.fish           # fisher install into a sandbox HOME
@@ -84,7 +79,6 @@ fisher copies only `functions/`, `completions/`, `conf.d/` and `themes/`. Everyt
 
 | Command | Description |
 | ------- | ----------- |
-| `make init NAME=x` | Rename the placeholder function; run once, first |
 | `make setup` | Install the Cog git hooks |
 | `make check` | Formatting and syntax |
 | `make test` | The fishtape suite |
@@ -117,6 +111,17 @@ its own invocation.
 **fish resolves `$__fish_config_dir` once, at startup.** Exporting `HOME` from inside a running fish does *not*
 redirect fisher; it will write to the real `~/.config/fish`. The sandbox environment must be handed to a child fish
 via `env`, and `scripts/smoke-test.fish` asserts the isolation actually took effect before installing anything.
+
+### What `make smoke` executes
+
+It does **not** call your functions — it only asserts each one is defined. But `fisher install` itself sources every
+`.fish` file it copies: `functions/` are merely defined, `completions/` run their `complete` calls, and any `conf.d/`
+file has its top-level code executed and an `<name>_install` event emitted. That is not something this gate adds — it
+is exactly what happens on a real user's machine, with your own code.
+
+`HOME`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are redirected to a temporary directory that is deleted on exit, so
+universal variables and anything written under `$HOME` are contained. Writes to absolute paths elsewhere are not. If
+you add a `conf.d/` that touches the wider filesystem, run this gate in CI only, where the runner is ephemeral.
 
 ## CI/CD
 

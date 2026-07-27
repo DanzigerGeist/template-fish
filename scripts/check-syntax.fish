@@ -4,8 +4,10 @@
 #
 # `fish --no-execute` reads exactly ONE script file: `fish -n a.fish b.fish`
 # parses a.fish and passes b.fish through as $argv, so a syntax error in any
-# file after the first is silently ignored. Every file therefore gets its own
-# invocation.
+# file after the first is silently ignored (measured: that invocation exits 0).
+# It also cannot take a directory -- `fish -n somedir` exits 127 with "Is a
+# directory". Per-file invocation is therefore the only way to cover a tree, not
+# a stylistic choice; the caller passes the discovered file list in.
 #
 # Note this is a parser, not a semantic checker: it will not catch an unknown
 # command or a misspelled builtin.

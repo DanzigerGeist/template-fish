@@ -3,31 +3,24 @@ MAKEFLAGS += --no-print-directory
 .DEFAULT_GOAL := help
 
 PLUGIN := $(notdir $(CURDIR))
-# Everything fish_indent and fish -n are allowed to see. scripts/ is included
-# on purpose: the CI helpers are fish too, and an unparseable helper would
-# otherwise only fail once CI ran it. tests/vendor/ is excluded -- it is
-# third-party code committed verbatim and is not ours to reformat.
-SOURCES := $(wildcard functions/*.fish completions/*.fish conf.d/*.fish scripts/*.fish)
-TESTS := $(wildcard tests/*.test.fish)
 
-.PHONY: help init setup format check test security publish build benchmark docs update clean version
+# Every fish file in the repository, discovered rather than enumerated, so a
+# directory you add later (conf.d/, themes/, more scripts) is covered without
+# editing this file. tests/vendor/ is excluded: it is third-party code committed
+# verbatim and is not ours to reformat.
+FISH_FILES := $(shell find . -name '*.fish' -not -path './tests/vendor/*' -not -path './.git/*' | sort)
+
+.PHONY: help setup format check test security publish build benchmark docs update clean version
 .PHONY: fmt-check syntax smoke
 
 help: ## ❓ List available make targets
 	@awk -F':.*##[ \t]*' '/^[A-Za-z0-9_.:-]+:.*##/ { printf "%-14s%s\n", $$1, $$2 }' $(MAKEFILE_LIST) | sort
 
-# fish autoloads a function only when its file is named after it, so the
-# placeholder cannot just be edited in place -- filename and definition must
-# move together. Run this once, first.
-init: ## 🌱 Rename the placeholder function (make init NAME=yourname)
-	@test -n "$(NAME)" || { echo "usage: make init NAME=yourname" >&2; exit 1; }
-	@fish scripts/init.fish example $(NAME)
-
 setup: ## ⚙️ Setup repository
 	@cog install-hook --all --overwrite
 
 format: ## 🎨 Format code
-	@fish_indent --write $(SOURCES) $(TESTS)
+	@fish_indent --write $(FISH_FILES)
 
 check: fmt-check syntax ## ✅ Run quality checks
 
@@ -53,7 +46,6 @@ benchmark: ## ⏱️ Run benchmarks
 
 docs: ## 📚 Generate docs
 	@echo "Documentation lives in README.md and each function's --description."
-	@fish -c 'for f in functions/*.fish; source $$f; end; functions -n | string split " "' 2>/dev/null || true
 
 update: ## 🔄 Update dependencies
 	@echo "No dependency manager: fishtape is vendored at tests/vendor/fishtape.fish."
@@ -65,16 +57,20 @@ clean: ## 🧹 Clean generated artifacts
 version: ## 📦 Print package metadata
 	@echo "$(PLUGIN) $$(git describe --tags --always --dirty 2>/dev/null || echo unreleased)"
 
+# Sources every .fish file it installs -- including any conf.d/ you add, whose
+# top-level code runs. That is exactly what happens on a real `fisher install`,
+# so this gate reproduces the user's experience rather than inventing a risk.
+# HOME and XDG_CONFIG_HOME are redirected to a temporary directory; writes to
+# absolute paths outside it are NOT contained. In CI the runner is ephemeral.
 smoke: ## 💨 Install via fisher into a throwaway HOME and load every function
 	@fish scripts/smoke-test.fish
 
 # Granular gates composed by `check`, deliberately kept out of `make help`,
 # mirroring how template-go hides fmt-check/lint/vet.
-#
-# $(wildcard ...) rather than a raw glob: an unmatched literal glob reaching
-# fish_indent errors with `Opening "conf.d/*.fish" failed` instead of no-opping.
 fmt-check:
-	@fish_indent --check $(SOURCES) $(TESTS)
+	@fish_indent --check $(FISH_FILES)
 
+# Per-file by necessity: `fish --no-execute` parses only its FIRST argument and
+# cannot take a directory at all (`fish -n somedir` exits 127, "Is a directory").
 syntax:
-	@fish scripts/check-syntax.fish $(SOURCES) $(TESTS)
+	@fish scripts/check-syntax.fish $(FISH_FILES)

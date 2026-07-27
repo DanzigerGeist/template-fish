@@ -13,13 +13,15 @@ reformat.
 
 ## Setup
 
-On a fresh clone, `make init NAME=yourname` renames the placeholder function — do this first. fish autoloads a
-function only when its file in `functions/` is named after the function it defines, so the filename and the definition
-have to move together; `scripts/init.fish` handles every place at once. If `functions/` no longer contains a file
-called `example.fish`, this step is already done.
+`make setup` once, to install the Cog git hooks (commit-message validation, pre-commit `make check`, pre-push `check`
++ `test` + `security`). There is nothing to download — fishtape is committed.
 
-Then `make setup` once, to install the Cog git hooks (commit-message validation, pre-commit `make check`, pre-push
-`check` + `test` + `security`). There is nothing to download — fishtape is committed.
+The `example` function, its completions and its tests are **examples, not scaffolding**. Deleting or replacing them is
+the expected first move; no gate looks for them by name. Every target discovers `*.fish` files, so new directories
+(`conf.d/`, `themes/`) and additional functions are picked up with no configuration.
+
+**fish autoloads a function only when its file in `functions/` is named after the function it defines.** Renaming a
+file means renaming the `function` line with it, and by convention the matching `completions/` and `tests/` files too.
 
 ## Commands
 
