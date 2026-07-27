@@ -1,0 +1,21 @@
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+
+# fish_indent hardcodes 4-space indentation and offers no way to configure it,
+# so fish files deviate from the 2-space house style by necessity rather than
+# preference. `make fmt-check` is the authority for these files.
+[*.fish]
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+[*.md]
+trim_trailing_whitespace = false

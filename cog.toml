@@ -1,0 +1,36 @@
+from_latest_tag = true
+ignore_merge_commits = true
+tag_prefix = "v"
+
+# No pre_bump_hooks: a fish plugin has no version file to rewrite (unlike
+# deno.json). fisher resolves OWNER/REPO@vX.Y.Z straight to the GitHub tarball
+# for that tag, so the git tag IS the version -- the same situation as Go
+# modules in template-go.
+#
+# Note: with from_latest_tag = true, `cog check` errors with "unable to get any
+# tag" until the first tag exists. Commit-message validation is handled by the
+# commit-msg hook below (cog verify works with zero tags) and by commitlint in
+# CI, so `cog check` is deliberately not part of `make check`.
+
+[changelog]
+path = "CHANGELOG.md"
+
+[git_hooks.commit-msg]
+script = """#!/bin/sh
+set -e
+cog verify --file "$1"
+"""
+
+[git_hooks.pre-commit]
+script = """#!/bin/sh
+set -e
+make check
+"""
+
+[git_hooks.pre-push]
+script = """#!/bin/sh
+set -e
+make check
+make test
+make security
+"""
